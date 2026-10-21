@@ -19,11 +19,12 @@ pipeline {
         }
 
         stage('Build and Test') {
-            steps {
-                sh 'python3 -m pip install --user -r requirements.txt'
-                sh 'python3 -m py_compile app.py'
-            }
-        }
+    steps {
+        sh 'python3 -m venv .venv'
+        sh '.venv/bin/pip install -r requirements.txt'
+        sh '.venv/bin/python -m py_compile app.py'
+    }
+}
 
         stage('Docker Build') {
             steps {
