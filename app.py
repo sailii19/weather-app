@@ -2,6 +2,7 @@ from flask import Flask, render_template, request
 from config import API_KEY
 import requests
 app = Flask(__name__)
+APP_VERSION = "2.0"
 
 @app.route("/", methods=["GET", "POST"])
 def index():
