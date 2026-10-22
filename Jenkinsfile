@@ -1,6 +1,6 @@
 
 pipeline {
-    agent any
+    agent none
 
     environment {
         AWS_REGION = 'ap-south-1'
@@ -12,44 +12,74 @@ pipeline {
     }
 
     stages {
-        stage('Checkout') {
+        stage('Build and Push to ECR') {
+            agent { label 'built-in' }
+
+            stages {
+                stage('Checkout') {
+                    steps {
+                        checkout scm
+                    }
+                }
+
+                stage('Build and Test') {
+                    steps {
+                        sh 'python3 -m venv .venv'
+                        sh '.venv/bin/pip install -r requirements.txt'
+                        sh '.venv/bin/python -m py_compile app.py'
+                    }
+                }
+
+                stage('Docker Build') {
+                    steps {
+                        sh 'docker build -t ${IMAGE_NAME}:latest .'
+                    }
+                }
+
+                stage('ECR Login') {
+                    steps {
+                        sh '''
+                            aws ecr get-login-password --region ${AWS_REGION} |
+                            docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                        '''
+                    }
+                }
+
+                stage('Docker Tag') {
+                    steps {
+                        sh 'docker tag ${IMAGE_NAME}:latest ${ECR_IMAGE}'
+                    }
+                }
+
+                stage('Push to ECR') {
+                    steps {
+                        sh 'docker push ${ECR_IMAGE}'
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Minikube') {
+            agent { label 'minikube-local' }
+
             steps {
                 checkout scm
-            }
-        }
 
-        stage('Build and Test') {
-    steps {
-        sh 'python3 -m venv .venv'
-        sh '.venv/bin/pip install -r requirements.txt'
-        sh '.venv/bin/python -m py_compile app.py'
-    }
-}
-
-        stage('Docker Build') {
-            steps {
-                sh 'docker build -t ${IMAGE_NAME}:latest .'
-            }
-        }
-
-        stage('ECR Login') {
-            steps {
-                sh '''
-                    aws ecr get-login-password --region ${AWS_REGION} |
-                    docker login --username AWS --password-stdin ${ECR_REGISTRY}
+                bat '''
+                    minikube kubectl -- apply -f k8s/
+                    minikube kubectl -- rollout restart deployment/weather-app
+                    minikube kubectl -- rollout status deployment/weather-app --timeout=180s
                 '''
             }
         }
 
-        stage('Docker Tag') {
-            steps {
-                sh 'docker tag ${IMAGE_NAME}:latest ${ECR_IMAGE}'
-            }
-        }
+        stage('Verify Deployment') {
+            agent { label 'minikube-local' }
 
-        stage('Push to ECR') {
             steps {
-                sh 'docker push ${ECR_IMAGE}'
+                bat 'minikube kubectl -- get deployments weather-app'
+                bat 'minikube kubectl -- get services weather-service'
+                bat 'minikube kubectl -- get pods -l app=weather-app'
             }
         }
     }
